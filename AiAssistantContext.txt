@@ -1,0 +1,47 @@
+# AI Study Assistant — Project Context
+
+## Overview
+Duo 4th year school project. Android app that takes text, images, or PDFs
+and generates summaries, quizzes, and flashcards using the Gemini API.
+
+## Stack
+- Android: Kotlin, MVVM, ML Kit (on-device OCR), Retrofit
+- Backend: Spring Boot + PostgreSQL (Hibernate, ddl-auto=update)
+- Auth: JWT via Spring Security
+- AI: Gemini API called server-side only
+
+## Architecture Flow
+User input → OCR on-device (ML Kit) → plain text + JWT → Spring backend
+→ Spring calls Gemini → parses + saves to PostgreSQL → returns to Android
+
+## MVP Features
+1. Auth — register, login, JWT
+2. Input — manual text, image (OCR), PDF
+3. Generate — summary, quiz, flashcards (single endpoint, type-driven)
+4. History — save, list, retrieve, delete
+
+## API Endpoints
+- POST /api/auth/register
+- POST /api/auth/login
+- POST /api/study/generate { text, type: SUMMARY|QUIZ|FLASHCARDS, subject? }
+- GET /api/history
+- GET /api/history/{sessionId}
+- DELETE /api/history/{sessionId}
+
+## Database — 4 entities
+users, study_sessions (type enum: SUMMARY/QUIZ/FLASHCARDS), questions (choices as JSON list), flashcards
+All PKs are UUIDs. All cascade on delete.
+
+## Repo Structure
+Two separate repos: study-assistant-android / study-assistant-backend
+
+## Work Split
+- Person A: Android
+- Person B: Spring Boot backend
+
+## Key Decisions
+- OCR is on-device, backend never receives images
+- No Firebase, Spring owns auth entirely
+- One /generate endpoint for all 3 types
+- History list returns metadata only, full content loaded on demand
+- Out of scope: spaced repetition, progress charts, offline mode, notifications
