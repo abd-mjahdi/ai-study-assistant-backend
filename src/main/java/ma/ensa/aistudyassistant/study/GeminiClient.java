@@ -1,11 +1,12 @@
 package ma.ensa.aistudyassistant.study;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -25,8 +26,8 @@ public class GeminiClient {
 
     public GeminiClient(
             ObjectMapper objectMapper,
-            @Value("${gemini.api-key:}") String apiKey,
-            @Value("${gemini.model:gemini-1.5-flash}") String model
+            @Value("${GEMINI_API_KEY:}") String apiKey,
+            @Value("${gemini.model:gemini-flash-latest}") String model
     ) {
         this.restClient = RestClient.builder().build();
         this.objectMapper = objectMapper;
@@ -49,25 +50,40 @@ public class GeminiClient {
                 )
         );
 
-        GeminiResponse response;
+        String rawResponseBody;
         try {
-            response = restClient.post()
+            rawResponseBody = restClient.post()
                     .uri("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}", model, apiKey)
                     .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
                     .body(payload)
                     .retrieve()
-                    .body(GeminiResponse.class);
+                    .body(String.class);
+        } catch (RestClientResponseException ex) {
+            String snippet = safeSnippet(ex.getResponseBodyAsString(), 600);
+            throw new ResponseStatusException(
+                    BAD_GATEWAY,
+                    "Gemini API error (" + ex.getStatusCode().value() + "): " + snippet
+            );
+        } catch (RestClientException ex) {
+            throw new ResponseStatusException(BAD_GATEWAY, "Failed to call Gemini API: " + ex.getMessage());
+        }
+
+        if (rawResponseBody == null || rawResponseBody.isBlank()) {
+            throw new ResponseStatusException(BAD_GATEWAY, "Gemini returned empty response body");
+        }
+
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(rawResponseBody);
         } catch (Exception ex) {
-            throw new ResponseStatusException(BAD_GATEWAY, "Failed to call Gemini API");
+            throw new ResponseStatusException(BAD_GATEWAY, "Gemini returned invalid JSON response");
         }
 
-        if (response == null || response.candidates() == null || response.candidates().isEmpty()) {
-            throw new ResponseStatusException(BAD_GATEWAY, "Gemini returned empty response");
+        String raw = extractTextFromCandidates(root);
+        if (raw == null || raw.isBlank()) {
+            throw new ResponseStatusException(BAD_GATEWAY, "Gemini returned empty content");
         }
-
-        String raw = response.candidates().get(0).content().parts().stream()
-                .map(Part::text)
-                .reduce("", (a, b) -> a + b);
 
         String cleaned = raw
                 .replace("```json", "")
@@ -77,23 +93,37 @@ public class GeminiClient {
         try {
             return objectMapper.readTree(cleaned);
         } catch (Exception ex) {
-            throw new ResponseStatusException(BAD_GATEWAY, "Gemini response format is invalid");
+            throw new ResponseStatusException(BAD_GATEWAY, "Gemini response format is invalid (expected JSON only)");
         }
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record GeminiResponse(List<Candidate> candidates) {
+    private String extractTextFromCandidates(JsonNode root) {
+        JsonNode candidates = root.get("candidates");
+        if (candidates == null || !candidates.isArray() || candidates.isEmpty()) {
+            return null;
+        }
+
+        JsonNode content = candidates.get(0).path("content");
+        JsonNode parts = content.path("parts");
+        if (!parts.isArray() || parts.isEmpty()) {
+            return null;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode part : parts) {
+            JsonNode textNode = part.get("text");
+            if (textNode != null && !textNode.isNull()) {
+                sb.append(textNode.asText());
+            }
+        }
+        return sb.toString();
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Candidate(Content content) {
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Content(List<Part> parts) {
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Part(String text) {
+    private String safeSnippet(String value, int maxLen) {
+        if (value == null) {
+            return "";
+        }
+        String trimmed = value.trim().replaceAll("\\s+", " ");
+        return trimmed.length() <= maxLen ? trimmed : trimmed.substring(0, maxLen) + "...";
     }
 }
