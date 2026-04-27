@@ -60,7 +60,7 @@ public class AuthService {
                         .build()
         );
 
-        return new AuthResponse(token, savedUser.getId(), savedUser.getUsername(), savedUser.getEmail());
+        return new AuthResponse(token, savedUser.getId(), savedUser.getUsername());
     }
 
     public AuthResponse login(LoginRequest request) {
@@ -85,7 +85,7 @@ public class AuthService {
                         .build()
         );
 
-        return new AuthResponse(token, user.getId(), user.getUsername(), user.getEmail());
+        return new AuthResponse(token, user.getId(), user.getUsername());
     }
 
     public MeResponse me(String userEmail) {
