@@ -4,6 +4,7 @@ import ma.ensa.aistudyassistant.security.CustomUserDetailsService;
 import ma.ensa.aistudyassistant.security.JwtAuthenticationFilter;
 import ma.ensa.aistudyassistant.study.GenerateRateLimitFilter;
 import ma.ensa.aistudyassistant.common.RequestSizeLimitFilter;
+import ma.ensa.aistudyassistant.common.RequestIdFilter;
 import org.springframework.http.MediaType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,17 +31,20 @@ public class SecurityConfig {
     private final CustomUserDetailsService userDetailsService;
     private final RequestSizeLimitFilter requestSizeLimitFilter;
     private final GenerateRateLimitFilter generateRateLimitFilter;
+    private final RequestIdFilter requestIdFilter;
 
     public SecurityConfig(
             JwtAuthenticationFilter jwtAuthenticationFilter,
             CustomUserDetailsService userDetailsService,
             RequestSizeLimitFilter requestSizeLimitFilter,
-            GenerateRateLimitFilter generateRateLimitFilter
+            GenerateRateLimitFilter generateRateLimitFilter,
+            RequestIdFilter requestIdFilter
     ) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.userDetailsService = userDetailsService;
         this.requestSizeLimitFilter = requestSizeLimitFilter;
         this.generateRateLimitFilter = generateRateLimitFilter;
+        this.requestIdFilter = requestIdFilter;
     }
 
     @Bean
@@ -68,6 +72,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())
+                .addFilterBefore(requestIdFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(requestSizeLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterAfter(generateRateLimitFilter, JwtAuthenticationFilter.class);

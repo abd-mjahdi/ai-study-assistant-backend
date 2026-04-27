@@ -13,6 +13,8 @@ import ma.ensa.aistudyassistant.study.dto.FlashcardResponse;
 import ma.ensa.aistudyassistant.study.dto.GenerateStudyRequest;
 import ma.ensa.aistudyassistant.study.dto.GenerateStudyResponse;
 import ma.ensa.aistudyassistant.study.dto.QuizQuestionResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -27,6 +29,8 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @Service
 public class StudyService {
+
+    private static final Logger log = LoggerFactory.getLogger(StudyService.class);
 
     private static final int MIN_INPUT_TEXT_LENGTH = 20;
     private static final int MAX_INPUT_TEXT_LENGTH = 20_000;
@@ -65,6 +69,9 @@ public class StudyService {
         String subject = normalizeSubject(request.subject());
         String inputText = request.text().trim();
 
+        log.info("study.generate.start userId={} type={} subjectPresent={}",
+                user.getId(), request.type(), subject != null);
+
         StudySession session = StudySession.builder()
                 .user(user)
                 .type(request.type())
@@ -78,6 +85,9 @@ public class StudyService {
         };
 
         StudySession saved = studySessionRepository.save(session);
+
+        log.info("study.generate.success userId={} sessionId={} type={}",
+                user.getId(), saved.getId(), saved.getType());
 
         return new GenerateStudyResponse(
                 saved.getId(),

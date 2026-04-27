@@ -9,6 +9,8 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -19,6 +21,8 @@ import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
 
 @Component
 public class GeminiClient {
+
+    private static final Logger log = LoggerFactory.getLogger(GeminiClient.class);
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -110,14 +114,6 @@ public class GeminiClient {
         return sb.toString();
     }
 
-    private String safeSnippet(String value, int maxLen) {
-        if (value == null) {
-            return "";
-        }
-        String trimmed = value.trim().replaceAll("\\s+", " ");
-        return trimmed.length() <= maxLen ? trimmed : trimmed.substring(0, maxLen) + "...";
-    }
-
     private String executeWithRetry(Map<String, Object> payload) {
         ResponseStatusException last = null;
 
@@ -132,15 +128,19 @@ public class GeminiClient {
                         .body(String.class);
             } catch (RestClientResponseException ex) {
                 int code = ex.getStatusCode().value();
-                String snippet = safeSnippet(ex.getResponseBodyAsString(), 600);
 
                 boolean retryable = code == 429 || (code >= 500 && code <= 599);
                 if (!retryable) {
-                    throw new ResponseStatusException(BAD_GATEWAY, "Gemini API error (" + code + "): " + snippet);
+                    log.warn("gemini.call.failed status={} model={} attempt={}/{}",
+                            code, model, attempt, maxAttempts);
+                    throw new ResponseStatusException(BAD_GATEWAY, "Gemini API error (" + code + ")");
                 }
 
+                log.warn("gemini.call.retryable status={} model={} attempt={}/{}",
+                        code, model, attempt, maxAttempts);
                 last = new ResponseStatusException(BAD_GATEWAY, "Gemini API temporary error (" + code + ")");
             } catch (RestClientException ex) {
+                log.warn("gemini.call.timeout model={} attempt={}/{}", model, attempt, maxAttempts);
                 last = new ResponseStatusException(GATEWAY_TIMEOUT, "Gemini API call timed out");
             }
 
