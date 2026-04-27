@@ -2,6 +2,7 @@ package ma.ensa.aistudyassistant.auth;
 
 import ma.ensa.aistudyassistant.auth.dto.AuthResponse;
 import ma.ensa.aistudyassistant.auth.dto.LoginRequest;
+import ma.ensa.aistudyassistant.auth.dto.MeResponse;
 import ma.ensa.aistudyassistant.auth.dto.RegisterRequest;
 import ma.ensa.aistudyassistant.model.entities.User;
 import ma.ensa.aistudyassistant.repository.UserRepository;
@@ -14,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
 @Service
@@ -84,5 +86,17 @@ public class AuthService {
         );
 
         return new AuthResponse(token, user.getId(), user.getUsername(), user.getEmail());
+    }
+
+    public MeResponse me(String userEmail) {
+        String normalizedEmail = userEmail == null ? null : userEmail.trim().toLowerCase();
+        if (normalizedEmail == null || normalizedEmail.isBlank()) {
+            throw new ResponseStatusException(UNAUTHORIZED, "Invalid token");
+        }
+
+        User user = userRepository.findByEmail(normalizedEmail)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "User not found"));
+
+        return new MeResponse(user.getId(), user.getUsername(), user.getEmail());
     }
 }
