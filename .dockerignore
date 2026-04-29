@@ -1,0 +1,13 @@
+target
+.idea
+.vscode
+.git
+.githooks
+*.iml
+*.ipr
+*.iws
+README.md
+SECURITY.md
+.env
+.env.*
+src/main/resources/application-local.properties
