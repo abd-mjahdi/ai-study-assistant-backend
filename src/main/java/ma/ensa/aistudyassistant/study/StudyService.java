@@ -3,10 +3,12 @@ package ma.ensa.aistudyassistant.study;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import ma.ensa.aistudyassistant.model.enums.SummaryDepth;
 import ma.ensa.aistudyassistant.model.entities.Flashcard;
 import ma.ensa.aistudyassistant.model.entities.Question;
 import ma.ensa.aistudyassistant.model.entities.StudySession;
 import ma.ensa.aistudyassistant.model.entities.User;
+import ma.ensa.aistudyassistant.model.enums.StudyType;
 import ma.ensa.aistudyassistant.repository.StudySessionRepository;
 import ma.ensa.aistudyassistant.repository.UserRepository;
 import ma.ensa.aistudyassistant.study.dto.FlashcardResponse;
@@ -37,9 +39,10 @@ public class StudyService {
     private static final int MAX_SUBJECT_LENGTH = 120;
     private static final int MAX_DB_CORRECT_ANSWER_LENGTH = 255;
     private static final int REQUIRED_CHOICES_COUNT = 4;
-    private static final int QUIZ_QUESTION_TARGET = 5;
+    private static final int DEFAULT_QUIZ_QUESTION_COUNT = 5;
+    private static final int MIN_QUIZ_QUESTIONS = 3;
+    private static final int MAX_QUIZ_QUESTIONS = 12;
     private static final int FLASHCARD_TARGET = 8;
-    private static final int MAX_ACCEPTED_QUIZ_QUESTIONS = 12;
     private static final int MAX_ACCEPTED_FLASHCARDS = 20;
 
     private final UserRepository userRepository;
@@ -76,11 +79,12 @@ public class StudyService {
                 .user(user)
                 .type(request.type())
                 .subject(subject)
+                .sourceText(inputText)
                 .build();
 
         PreparedGeneration generated = switch (request.type()) {
-            case SUMMARY -> prepareSummary(session, inputText);
-            case QUIZ -> prepareQuiz(session, inputText);
+            case SUMMARY -> prepareSummary(session, inputText, resolveSummaryDepth(request));
+            case QUIZ -> prepareQuiz(session, inputText, resolveQuizQuestionCount(request));
             case FLASHCARDS -> prepareFlashcards(session, inputText);
         };
 
@@ -96,21 +100,41 @@ public class StudyService {
                 generated.summary(),
                 generated.questions(),
                 generated.flashcards(),
-                saved.getCreatedAt()
+                saved.getCreatedAt(),
+                saved.getSourceText()
         );
     }
 
-    private PreparedGeneration prepareSummary(StudySession session, String text) {
+    private PreparedGeneration prepareSummary(StudySession session, String text, SummaryDepth depth) {
+        String depthInstructions = switch (depth) {
+            case ESSENTIALS -> """
+                    Depth: ESSENTIALS — keep it short. Aim for a tight overview: only the most important ideas, \
+                    minimal jargon, and no long paragraphs. Roughly one short section or a handful of bullets worth \
+                    of material (still as flowing prose inside the single summary string unless bullets are clearly \
+                    better for readability).
+                    """;
+            case BALANCED -> """
+                    Depth: BALANCED — clear explanations with a sensible level of detail: main ideas, brief context, \
+                    and key terms explained once. Aim for what a motivated reader would want in one sitting.
+                    """;
+            case THOROUGH -> """
+                    Depth: THOROUGH — richer explanation: structure with clear sections if helpful, include nuance, \
+                    relationships between ideas, and brief definitions or examples where they clarify the material. \
+                    Still stay within reasonable length for a study aid (not a textbook chapter).
+                    """;
+        };
+
         String prompt = """
-                You are an assistant generating a concise educational summary.
+                You are an assistant generating an educational summary from the user's material.
                 Return ONLY valid JSON with this exact shape:
                 {
                   "summary": "string"
                 }
                 Rules:
-                - Summary should be clear and in plain text.
-                - No markdown, no backticks, no extra keys.
-                """;
+                - %s
+                - Summary should be plain text inside the JSON string (line breaks allowed).
+                - No markdown fences, no backticks, no extra keys.
+                """.formatted(depthInstructions.trim());
 
         JsonNode json = geminiClient.generateJson(prompt, text);
         String summary = readRequiredText(json, "summary");
@@ -119,7 +143,7 @@ public class StudyService {
         return new PreparedGeneration(summary, null, null);
     }
 
-    private PreparedGeneration prepareQuiz(StudySession session, String text) {
+    private PreparedGeneration prepareQuiz(StudySession session, String text, int questionCount) {
         String prompt = """
                 You are an assistant generating multiple-choice quiz questions.
                 Return ONLY valid JSON with this exact shape:
@@ -138,15 +162,16 @@ public class StudyService {
                 - Each question must have exactly %d choices.
                 - correctIndex must be between 0 and %d.
                 - No markdown, no backticks, no extra keys.
-                """.formatted(QUIZ_QUESTION_TARGET, REQUIRED_CHOICES_COUNT, REQUIRED_CHOICES_COUNT - 1);
+                """.formatted(questionCount, REQUIRED_CHOICES_COUNT, REQUIRED_CHOICES_COUNT - 1);
 
         JsonNode json = geminiClient.generateJson(prompt, text);
         JsonNode questionsNode = json.get("questions");
         if (questionsNode == null || !questionsNode.isArray() || questionsNode.isEmpty()) {
             throw new ResponseStatusException(BAD_GATEWAY, "Gemini returned no quiz questions");
         }
-        if (questionsNode.size() > MAX_ACCEPTED_QUIZ_QUESTIONS) {
-            throw new ResponseStatusException(BAD_GATEWAY, "Gemini returned too many quiz questions");
+        if (questionsNode.size() != questionCount) {
+            throw new ResponseStatusException(BAD_GATEWAY,
+                    "Gemini returned " + questionsNode.size() + " questions but exactly " + questionCount + " were required");
         }
 
         List<QuizQuestionResponse> responseQuestions = new ArrayList<>();
@@ -324,6 +349,27 @@ public class StudyService {
         if (trimmedText.length() > MAX_INPUT_TEXT_LENGTH) {
             throw new ResponseStatusException(BAD_REQUEST, "text is too long");
         }
+
+        if (request.type() == StudyType.QUIZ) {
+            Integer qc = request.quizQuestionCount();
+            if (qc != null && (qc < MIN_QUIZ_QUESTIONS || qc > MAX_QUIZ_QUESTIONS)) {
+                throw new ResponseStatusException(BAD_REQUEST,
+                        "quizQuestionCount must be between " + MIN_QUIZ_QUESTIONS + " and " + MAX_QUIZ_QUESTIONS);
+            }
+        }
+    }
+
+    private static SummaryDepth resolveSummaryDepth(GenerateStudyRequest request) {
+        SummaryDepth d = request.summaryDepth();
+        return d != null ? d : SummaryDepth.BALANCED;
+    }
+
+    private static int resolveQuizQuestionCount(GenerateStudyRequest request) {
+        Integer qc = request.quizQuestionCount();
+        if (qc == null) {
+            return DEFAULT_QUIZ_QUESTION_COUNT;
+        }
+        return qc;
     }
 
     private record PreparedGeneration(

@@ -13,6 +13,7 @@ public record GenerateStudyResponse(
         String summary,
         List<QuizQuestionResponse> questions,
         List<FlashcardResponse> flashcards,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String sourceText
 ) {
 }

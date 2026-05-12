@@ -25,7 +25,29 @@ public class JwtService {
             @Value("${jwt.secret}") String base64Secret,
             @Value("${jwt.expiration-ms:86400000}") long expirationMs
     ) {
-        this.signingKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(base64Secret));
+        if (base64Secret == null || base64Secret.isBlank()) {
+            throw new IllegalStateException(
+                    "JWT_SECRET is missing or empty. Set env JWT_SECRET to a valid Base64 string "
+                            + "(e.g. generate with: openssl rand -base64 48) and restart."
+            );
+        }
+        byte[] keyBytes;
+        try {
+            keyBytes = Decoders.BASE64.decode(base64Secret.trim());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(
+                    "JWT_SECRET must be valid Base64 (used as raw HMAC key bytes). "
+                            + "Generate one with: openssl rand -base64 48",
+                    e
+            );
+        }
+        if (keyBytes.length < 32) {
+            throw new IllegalStateException(
+                    "JWT_SECRET decodes to fewer than 32 bytes; use a longer secret "
+                            + "(e.g. openssl rand -base64 48 decodes to 36 bytes)."
+            );
+        }
+        this.signingKey = Keys.hmacShaKeyFor(keyBytes);
         this.expirationMs = expirationMs;
     }
 

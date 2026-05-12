@@ -52,7 +52,8 @@ public class HistoryService {
                     session.getSummaryContent(),
                     null,
                     null,
-                    session.getCreatedAt()
+                    session.getCreatedAt(),
+                    session.getSourceText()
             );
             case QUIZ -> new GenerateStudyResponse(
                     session.getId(),
@@ -61,7 +62,8 @@ public class HistoryService {
                     null,
                     mapQuestions(session.getQuestions()),
                     null,
-                    session.getCreatedAt()
+                    session.getCreatedAt(),
+                    session.getSourceText()
             );
             case FLASHCARDS -> new GenerateStudyResponse(
                     session.getId(),
@@ -76,7 +78,8 @@ public class HistoryService {
                             ))
                             .map(f -> new FlashcardResponse(f.getFront(), f.getBack()))
                             .toList(),
-                    session.getCreatedAt()
+                    session.getCreatedAt(),
+                    session.getSourceText()
             );
         };
     }

@@ -61,6 +61,10 @@ public class StudySession {
     @Column(columnDefinition = "TEXT")
     private String summaryContent;
 
+    /** Original study material text (for follow-up generation from results). */
+    @Column(columnDefinition = "TEXT")
+    private String sourceText;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false, nullable = false)
     @ToString.Include
